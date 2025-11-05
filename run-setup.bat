@@ -4,6 +4,9 @@ REM 이 배치 파일은 PowerShell 스크립트 실행 정책으로 인한 차단을 피하기 위해
 REM setup-environment.ps1을 -ExecutionPolicy Bypass 옵션으로 실행합니다.
 REM 사용법: 이 파일을 더블클릭하거나, 관리자 권한 cmd에서 실행하세요.
 
+REM NOTE: README.md and ai.txt were intentionally removed from the repo. This helper launches
+REM the installer script with a temporary ExecutionPolicy bypass and keeps the console open.
+
 :: 스크립트가 위치한 디렉터리
 SET "SCRIPT_DIR=%~dp0"
 

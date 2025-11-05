@@ -14,6 +14,10 @@
   주의: 이 스크립트는 머신 환경변수(Path) 수정(관리자 권한 필요)을 시도합니다.
 #>
 
+# NOTE: README.md and ai.txt were removed from the repository. See `run-setup.bat` for a convenient way
+# to run this script with ExecutionPolicy bypass. This script prints status and attempts to add
+# common tool paths to the user's PATH. Keep it in the repo root and run from that location.
+
 [CmdletBinding()]
 param(
     [bool]$InstallChocolatey = $true,

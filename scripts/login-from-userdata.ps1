@@ -17,6 +17,10 @@
     .\scripts\login-from-userdata.ps1 -Path 'C:\safe\userdata.login'
 #>
 
+# NOTE: README.md/ai.txt have been removed from this repository. This script focuses solely on
+# configuring git globals and launching `gh auth login --web` for interactive authentication.
+# Run via `run-setup.bat` or call directly from the repository root.
+
 param(
     [string]$Path = (Join-Path $PSScriptRoot '..\userdata.login'),
     [switch]$Force  # 이미 설정된 값을 덮어쓸지 여부
