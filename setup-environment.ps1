@@ -15,6 +15,7 @@
   주의: 이 스크립트는 머신 환경변수(Path) 수정(관리자 권한 필요)을 시도합니다.
 #>
 
+[CmdletBinding()]
 param(
     [bool]$InstallChocolatey = $true,
     [bool]$InstallGit = $true,
@@ -22,28 +23,60 @@ param(
     [bool]$InstallMsys2 = $true
 )
 
+
 function Add-ToUserPath {
-    param([string]$NewPath)
+    param([Parameter(Mandatory = $true)][string]$NewPath)
+
+    # 상태 추적 변수(글로벌)
+    if (-not (Test-Path variable:AddedPaths)) { Set-Variable -Name AddedPaths -Value @() -Scope Script }
+    if (-not (Test-Path variable:SkippedPaths)) { Set-Variable -Name SkippedPaths -Value @() -Scope Script }
+    if (-not (Test-Path variable:FailedPaths)) { Set-Variable -Name FailedPaths -Value @() -Scope Script }
+
     if (-not (Test-Path -Path $NewPath -PathType Any)) {
         Write-Host "경로가 존재하지 않습니다: $NewPath" -ForegroundColor Yellow
-        return
+        $script:FailedPaths += $NewPath
+        return $false
     }
+
+    try {
+        $full = (Get-Item -LiteralPath $NewPath -ErrorAction Stop).FullName
+    }
+    catch {
+        $full = $NewPath
+    }
+
     $current = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if ($current -and ($current -like "*${NewPath}*")) {
-        Write-Host "이미 User PATH에 포함됨: $NewPath"
-        return
+    $currentItems = @()
+    if ($current) { $currentItems = $current.Split(';') | Where-Object { $_ -ne '' } }
+
+    # Normalize comparison: case-insensitive exact match
+    $exists = $false
+    foreach ($it in $currentItems) {
+        try { $itFull = (Get-Item -LiteralPath $it -ErrorAction SilentlyContinue).FullName } catch { $itFull = $it }
+        if ($itFull -and ($itFull -ieq $full)) { $exists = $true; break }
     }
+
+    if ($exists) {
+        Write-Host "이미 User PATH에 포함됨(스킵): $full" -ForegroundColor Yellow
+        $script:SkippedPaths += $full
+        return $true
+    }
+
+    # Append safely
     $separator = ';'
-    if (-not $current) { $current = '' }
-    $newValue = $current.TrimEnd($separator)
+    $newValue = ($currentItems -join $separator)
     if ($newValue -ne '') { $newValue = $newValue + $separator }
-    $newValue = $newValue + $NewPath
+    $newValue = $newValue + $full
     try {
         [Environment]::SetEnvironmentVariable('Path', $newValue, 'User')
-        Write-Host "User PATH에 추가됨: $NewPath"
+        Write-Host "User PATH에 추가됨: $full" -ForegroundColor Green
+        $script:AddedPaths += $full
+        return $true
     }
     catch {
         Write-Host "User PATH에 추가하는데 실패했습니다: $_" -ForegroundColor Red
+        $script:FailedPaths += $full
+        return $false
     }
 }
 
@@ -93,7 +126,12 @@ function Install-ChocoPackage {
     }
     else {
         Write-Host "$PackageName 설치 중..." -ForegroundColor Green
-        choco install $PackageName -y --no-progress
+        try {
+            choco install $PackageName -y --no-progress
+        }
+        catch {
+            Write-Host "choco 설치 명령이 실패했습니다: $_" -ForegroundColor Red
+        }
     }
 }
 
@@ -136,6 +174,14 @@ if ($InstallMsys2) {
     else {
         Write-Host "MSYS2 설치 후 bin 경로를 찾지 못했습니다. 수동으로 경로를 확인하여 PATH에 추가하세요." -ForegroundColor Yellow
     }
+
+    # 추가 요청: C:\msys64 및 C:\msys64\usr\bin을 User PATH에 추가 시도
+    $ensurePaths = @('C:\msys64', 'C:\msys64\usr\bin')
+    foreach ($ep in $ensurePaths) {
+        if (Test-Path $ep) {
+            Add-ToUserPath -NewPath $ep
+        }
+    }
 }
 
 # git, gh 경로가 자동으로 PATH에 추가되지 않았다면 탐색 후 추가
@@ -163,8 +209,21 @@ Write-Host '== 완료: 설치/환경 설정이 끝났습니다. 쉘을 재시작하거나 로그아웃/로�
 Write-Host "Installed components summary:" -ForegroundColor Cyan
 Get-Command choco, git, gh -ErrorAction SilentlyContinue | ForEach-Object { Write-Host " - $($_.Name): $($_.Source)" }
 
-Write-Host "Machine PATH 마지막 3개 항목:" -ForegroundColor Cyan
-$pathItems = [Environment]::GetEnvironmentVariable('Path','Machine').Split(';') | Where-Object { $_ -ne '' }
-$pathItems[-3..-1] | ForEach-Object { Write-Host " - $_" }
+Write-Host "추가된(Added) 경로:" -ForegroundColor Cyan
+if (Test-Path variable:AddedPaths -ErrorAction SilentlyContinue -PathType Any) { $script:AddedPaths | ForEach-Object { Write-Host " - $_" } } else { Write-Host " - (없음)" }
+
+Write-Host "스킵된(Skipped) 경로(이미 존재):" -ForegroundColor Yellow
+if (Test-Path variable:SkippedPaths -ErrorAction SilentlyContinue -PathType Any) { $script:SkippedPaths | ForEach-Object { Write-Host " - $_" } } else { Write-Host " - (없음)" }
+
+Write-Host "실패(Failed) 경로(추가 실패 또는 오류):" -ForegroundColor Red
+if (Test-Path variable:FailedPaths -ErrorAction SilentlyContinue -PathType Any) { $script:FailedPaths | ForEach-Object { Write-Host " - $_" } } else { Write-Host " - (없음)" }
+
+Write-Host "User PATH 최근 항목(요약):" -ForegroundColor Cyan
+$pathItems = [Environment]::GetEnvironmentVariable('Path','User')
+if ($pathItems) {
+    $items = $pathItems.Split(';') | Where-Object { $_ -ne '' }
+    if ($items.Count -ge 5) { $items[-5..-1] | ForEach-Object { Write-Host " - $_" } }
+    else { $items | ForEach-Object { Write-Host " - $_" } }
+}
 
 # 끝
