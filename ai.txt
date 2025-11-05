@@ -1,0 +1,150 @@
+AI 인수인계 파일 (ai.txt)
+생성일: 2025-11-05 (최종 업데이트: 2025-11-05)
+작성자: 자동화 에이전트 (세션 기록 기반)
+
+목적
+- 이 파일은 다른 Copilot/AI 세션 또는 새로운 개발자가 `AutoGitDude` 저장소와 특히 `setup-environment.ps1` 스크립트의 현재 상태를 빠르게 이해하고, 동일 또는 깨끗한 환경에서 안전하게 테스트, 수정, 확장할 수 있도록 모든 중요한 정보를 한곳에 제공합니다.
+
+리포지토리 개요
+- 이름: AutoGitDude
+- 소유자: caffentrager
+- 현재 브랜치: main
+- 루트 경로: g:\\project\\AutoGitDude
+
+핵심 산출물
+- setup-environment.ps1 (핵심): Windows용 환경 부트스트랩 스크립트. 위치: `g:\project\AutoGitDude\setup-environment.ps1`
+- README.md: 스크립트 사용법/설명(루트)
+- LICENSE: MIT placeholder
+
+스크립트 목적(요약)
+- Windows 환경에서 개발 도구 설치 및 PATH 정비 자동화
+  - Chocolatey 설치(없을 경우 시도)
+  - choco를 통해 git, gh, msys2 설치(옵션)
+  - 흔한 설치 경로 감지 및 User PATH 자동 추가
+  - User PATH에 추가되면 현재 PowerShell 세션 `$env:Path`에 즉시 병기하여 같은 실행 중에 명령 사용 가능하게 함
+  - 설치/검출 요약을 깔끔하게 출력
+
+주요 동작 흐름(상세)
+1) 파라미터
+   -InstallChocolatey (default: $true)
+   -InstallGit (default: $true)
+   -InstallGh (default: $true)
+   -InstallMsys2 (default: $true)
+
+2) Chocolatey 설치 단계
+   - `Get-Command choco`로 choco 존재 여부 확인
+   - 없으면 Chocolatey 웹 설치 스크립트(https://community.chocolatey.org/install.ps1)를 다운로드해 Invoke-Expression으로 실행
+   - 설치 스크립트가 "폴더만 존재" 메시지를 남기는 경우가 있어, 이후 PATH 보정 로직이 이를 보완
+
+3) 패키지 설치(Install-ChocoPackage)
+   - `choco` 명령 존재 시 `choco install <name> -y --no-progress` 호출
+   - 예외 발생 시 에러 메시지 출력(관리자 권한 필요 안내 포함)
+
+4) 설치 경로 감지(Get-CommonInstallPaths)
+   - 기본 대상: choco, git, gh, msys2
+   - 각 대상에 대해 후보 경로 배열을 생성(예: ProgramData, Program Files, LOCALAPPDATA, C:\msys64 등)
+   - 후보 중 `Test-Path`로 존재하는 경로를 찾아 반환(우선순위가 높은 후보를 먼저 체크)
+
+5) User PATH 보정(Add-ToUserPath)
+   - 인수: NewPath(string)
+   - 동작: 경로 존재 확인 -> User PATH에서 중복 검사(정규화된 FullName 비교) -> 중복이 아니면 User PATH에 append
+   - 성공 시: `$script:AddedPaths += <full>`; 실패 시 `$script:FailedPaths += <path>`; 이미 있으면 `$script:SkippedPaths += <path>`
+   - 추가된 경우 현재 프로세스의 `$env:Path`에도 같은 경로를 append 하여 즉시 사용 가능하게 처리(try/catch로 안전하게 감춤)
+
+6) 자동 추가 로직
+   - `Get-CommonInstallPaths`로 감지된 경로가 있고 `Get-Command <prog>`로 명령이 사용 불가하면 자동으로 Add-ToUserPath 호출
+   - 이후에도 세션에서 명령이 보이지 않으면 세션 PATH에 강제로 추가하고(및 refreshenv 실행 시도)
+
+7) msys2 특수 처리
+   - msys2는 단일 명령이 없으므로 감지된 msys2 폴더에서 `bash.exe`, `usr\bin\bash.exe`, `pacman.exe`를 차례로 검색
+   - 발견된 실행파일에 대해 `--version`을 호출하고 요약에는 첫 번째 유효 라인만 표시(140자 초과 시 잘라냄)
+
+8) 출력/요약
+   - Installed components summary: 각 프로그램의 실행파일 경로와 (가능하면) 정리된 버전 문자열 출력
+   - Added/Skipped/Failed 목록을 출력(중복 제거 후)
+   - User PATH 최신 항목(요약)도 출력
+
+전역 상태 변수(스크립트 내부)
+- $script:AddedPaths  => 추가 성공 경로 목록
+- $script:SkippedPaths => 이미 존재해서 스킵된 경로 목록
+- $script:FailedPaths => 추가 실패 경로 목록
+
+최근 주요 수정 및 이슈(시간순)
+1. 초깃값: 기본 스크립트 생성 ? choco install flow, initial PATH candidates
+2. User PATH 변경을 Machine -> User로 변경(요청 반영)
+3. `$env:ChocolateyInstall`이 null일 때 Join-Path 오류 발생 -> null guard 추가
+4. JSON/로그 파일 쓰기 및 undo 기능이 추가되었다가 사용자의 요청으로 제거됨(이후 콘솔 출력 전용으로 변경)
+5. Add-ToUserPath에서 반환값이 콘솔에 찍히던 문제 수정 ([void](...))
+6. `${env:ProgramFiles(x86)}` 구문 문제 수정(올바른 브래킷 구문 사용)
+7. msys2 detection 강화: bash/pacman 검사 및 버전 요약(길이 제한) 적용
+8. 세션 PATH 즉시 반영 로직 추가 및 refreshenv 호출 시도
+
+알려진/해결된 문제들
+- 문제: Chocolatey 폴더만 존재하지만 `choco`명령이 없음
+  - 원인: PATH에 choco bin이 빠져있음 (보통 C:\ProgramData\chocolatey\bin)
+  - 해결: 스크립트가 경로를 감지하면 User PATH에 추가하고 현재 세션 PATH에도 append함
+- 문제: `${env:ProgramFiles(x86)}` 구문으로 인한 파서 에러
+  - 해결: `${env:ProgramFiles(x86)}` 구문으로 안전하게 변경
+- 문제: msys2 --version 출력이 길어서 요약이 깨짐
+  - 해결: 첫 줄만 사용하고 140자로 잘라 표시
+
+테스트/검증 절차 (권장)
+1) 기본 실행
+   - powershell -NoProfile -ExecutionPolicy Bypass -File .\\setup-environment.ps1
+2) 관리자 설치(필요 시)
+   - Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','G:\\project\\AutoGitDude\\setup-environment.ps1' -Verb RunAs
+3) 검증 명령
+   - choco --version
+   - git --version
+   - gh --version
+   - bash --version
+4) 추가 확인: 레지스트리에 반영된 User PATH 확인
+   - [Environment]::GetEnvironmentVariable('Path','User') | Select-String 'chocolatey' -Quiet
+5) 문제 재현 시 로그(콘솔 전체 출력)를 저장해서 이슈로 첨부
+
+문제 해결 팁 (빠른 체크리스트)
+- 파서 에러: 스크립트에서 `${env:...}` 형태 및 괄호/중괄호 닫힘 확인
+- choco가 "없음": `C:\ProgramData\chocolatey\bin`이 User PATH에 있는지 확인, 없다면 수동으로 추가 후 새 세션 열기
+  - 수동 추가 예:
+    [Environment]::SetEnvironmentVariable('Path', (Get-Item -Path 'HKCU:\Environment').GetValue('Path') + ';C:\ProgramData\chocolatey\bin', 'User')
+- msys2 인식 문제: msys2에는 `msys2.exe`가 없으므로 `bash.exe`/`pacman.exe` 검사 필요
+
+권장 개선(우선순위)
+1) (보통 우선) `--auto-add` 플래그 또는 실행 중 Y/n 프롬프트 도입: 자동으로 User PATH를 변경하기 전에 사용자 확인 옵션 제공
+2) 검사 대상 확장: Python, Node.js, Docker, Java, .NET SDK 등 주요 개발 런타임 추가
+3) 옵션 로깅: 실행 결과(Added/Skipped/Failed 및 감지된 경로)를 로그 파일에 기록하는 --log <file> 옵션
+4) 테스트 스크립트: PowerShell 모듈 Pester를 사용한 단위 테스트 추가(특히 경로 정규화, 중복 검사 로직)
+5) CI: 간단한 Windows PowerShell CI(platyPS + Pester)로 문서 및 기본 동작 검증
+
+How to revert PATH changes (수동 복구)
+1) User PATH에서 특정 항목 제거(예: C:\ProgramData\chocolatey\bin)
+   $current = [Environment]::GetEnvironmentVariable('Path','User')
+   $new = ($current.Split(';') | Where-Object { $_ -and ($_ -ne 'C:\ProgramData\chocolatey\bin') }) -join ';'
+   [Environment]::SetEnvironmentVariable('Path',$new,'User')
+2) 레지스트리 직접 편집(권장하지 않음) ? 백업 후 신중히 수행
+
+간단한 개발자 가이드(다음 세션을 담당하는 AI/개발자에게)
+- 변경할 때마다 소규모 커밋을 만들고 PowerShell로 바로 실행해 결과를 확인하세요.
+- 파서 에러 발생 시 최근 변경 부분(Env var, 문자열 인용, here-strings)을 먼저 검사하세요.
+- 자동 추가 동작을 바꾸려면 `foreach ($k in $DetectedPrograms.Keys)` 루프와 `Add-ToUserPath` 호출 주변을 수정하면 됩니다.
+
+예상 테스트 매트릭스
+- Windows 10/11, PowerShell 5.1 (Windows PowerShell) ? 필수 테스트
+- PowerShell 7+ (pwsh) ? 호환성 확인
+- 표준 사용자 계정 vs 관리자 계정 ? choco 설치 단계에서 차이 검증
+
+최근 명령/출력 예시(유저가 제공한 런 출력 발췌)
+- Chocolatey 설치 스크립트가 "existing installation" 경고를 출력했음. (C:\\ProgramData\\chocolatey 폴더 존재)
+- choco 명령이 세션에서 처음엔 인식되지 않았으나 스크립트가 User PATH와 세션 PATH를 보정한 뒤 인식됨
+- msys2 경로(예: C:\\msys64\\usr\\bin)가 감지되고 `bash.exe`가 찾아져서 요약에 버전이 표시됨
+
+커밋/브랜치/원격 팁
+- 변경을 원격에 푸시할 때는 `git add setup-environment.ps1 ai.txt && git commit -m "Improve PATH detection & msys2 summary" && git push` 권장
+
+연락처/소유자
+- 기본 소유자/관리자: caffentrager (GitHub 계정)
+
+마지막으로
+- 이 문서는 다음 세션의 진입점으로 사용하세요. 테스트 출력을 복사해서 붙여주시면 문제 해결을 더 빨리 진행할 수 있습니다.
+
+끝.
