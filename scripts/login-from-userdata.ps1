@@ -1,9 +1,9 @@
 <#
   scripts/login-from-userdata.ps1
-  목적: 리포지터리 루트의 userdata.login(JSON)을 읽어
-    - git user.name / user.email 설정
-    - git credential.helper 설정(옵션)
-    - gh CLI에 토큰으로 로그인(토큰을 stdin으로 전달하여 gh에 안전하게 전달)
+    목적: 리포지터리 루트의 userdata.login(JSON)을 읽어
+        - git user.name / user.email 설정
+        - git credential.helper 설정(옵션)
+        - gh CLI에 웹 기반 로그인 흐름을 안내/실행 (토큰 저장 사용을 권장하지 않음)
 
   주의: userdata.login에는 개인 토큰이 평문으로 들어갈 수 있습니다. 보안상 권장하지 않음.
     - 권장: 환경변수(GH_TOKEN) 사용 또는 gh auth login --web 사용
@@ -27,18 +27,15 @@ param(
 
 if (-not (Test-Path -Path $Path)) {
     Write-Log "userdata.login 파일을 찾을 수 없습니다. 템플릿을 생성합니다: $Path" 'WARN'
-    $template = @'
-{
-  "git": {
-    "name": "Your Name",
-    "email": "you@example.com"
-  },
-  "gh": {
-    "token": "<PERSONAL_ACCESS_TOKEN_HERE>"
-  },
-  "notes": "이 파일은 민감 정보를 포함할 수 있습니다. 실사용 시에는 저장소에 커밋하지 말고, .gitignore에 추가하세요. 대안: GH_TOKEN 환경변수 또는 gh auth login --web 권장."
-}
-'@
+        $template = @'
+    {
+        "git": {
+            "name": "Your Name",
+            "email": "you@example.com"
+        },
+        "notes": "이 파일은 민감 정보를 포함할 수 있습니다. 실사용 시에는 저장소에 커밋하지 마세요. 권장 로그인 방법: gh auth login --web (브라우저 기반 인증)."
+    }
+    '@
     try {
         $dir = Split-Path -Path $Path -Parent
         if (-not (Test-Path $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null }
@@ -94,51 +91,20 @@ if ($data.git) {
 }
 else { Write-Log "userdata.login에 'git' 섹션이 없습니다." 'WARN' }
 
-# gh 로그인 (토큰이 있으면 stdin으로 전달)
-$token = $null
-if ($data.gh -and $data.gh.token) { $token = $data.gh.token.Trim() }
-# 환경변수 우선(더 안전한 방법)
-if (-not $token -and $env:GH_TOKEN) { $token = $env:GH_TOKEN }
-
-if ($token) {
-    if (Get-Command gh -ErrorAction SilentlyContinue) {
-        try {
-            Write-Log "gh에 토큰으로 로그인 시도(토큰은 stdout에 출력되지 않습니다)" 'INFO'
-            # 토큰을 안전하게 파이프하여 gh에 전달
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($token + "`n")
-            $ms = New-Object System.IO.MemoryStream(,$bytes)
-            $ms.Position = 0
-            # Start-Process를 이용해 표준입력으로 전달
-            $psi = New-Object System.Diagnostics.ProcessStartInfo
-            $psi.FileName = 'gh'
-            $psi.ArgumentList.Add('auth')
-            $psi.ArgumentList.Add('login')
-            $psi.ArgumentList.Add('--with-token')
-            $psi.RedirectStandardInput = $true
-            $psi.RedirectStandardOutput = $true
-            $psi.RedirectStandardError = $true
-            $psi.UseShellExecute = $false
-            $p = New-Object System.Diagnostics.Process
-            $p.StartInfo = $psi
-            $p.Start() | Out-Null
-            $stdIn = $p.StandardInput
-            $stdIn.WriteLine($token)
-            $stdIn.Close()
-            $out = $p.StandardOutput.ReadToEnd()
-            $err = $p.StandardError.ReadToEnd()
-            $p.WaitForExit()
-            if ($p.ExitCode -eq 0) { Write-Log "gh 로그인 성공" 'INFO' } else { Write-Log "gh 로그인 실패: $err" 'ERROR' }
-        }
-        catch {
-            Write-Log "gh 로그인 중 오류: $_" 'ERROR'
-        }
+# gh 로그인 (브라우저 기반, 토큰 저장 사용 안함)
+if (Get-Command gh -ErrorAction SilentlyContinue) {
+    try {
+        Write-Log "gh로 웹 기반 로그인 흐름을 시작합니다 (브라우저에서 인증)." 'INFO'
+        # --hostname은 필요에 따라 조정 가능
+        & gh auth login --hostname github.com --web
+        Write-Log "gh 로그인 흐름이 완료되었습니다. (성공/취소는 브라우저에서 결정됩니다)" 'INFO'
     }
-    else {
-        Write-Log "gh CLI를 찾을 수 없습니다. gh 설치 후 다시 시도하세요." 'ERROR'
+    catch {
+        Write-Log "gh 로그인 중 오류: $_" 'ERROR'
     }
 }
 else {
-    Write-Log "gh 토큰이 userdata.login에 없고 GH_TOKEN 환경변수도 설정되지 않았습니다. 수동으로 로그인하세요: 'gh auth login --web'" 'WARN'
+    Write-Log "gh CLI를 찾을 수 없습니다. gh 설치 후 다시 시도하세요." 'ERROR'
 }
 
 Write-Log "작업이 완료되었습니다." 'INFO'
