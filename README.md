@@ -1,86 +1,58 @@
-﻿# AutoGitDude
+﻿# AutoGitDude — Setup & Environment
 
-AutoGitDude는 로컬에서 빠르게 Git 저장소를 초기화하고 GitHub에 등록하기 위한 시작점입니다.
+이 README는 오직 `setup-environment.ps1` 스크립트의 설치/실행 가이드만을 포함합니다.
 
-이 저장소에는 프로젝트 시작에 도움이 되는 기본 파일과, Windows 환경에서 개발 도구(Chocolatey, Git, GitHub CLI, MSYS2)를 자동으로 설치하고
-사용자 범위의 PATH에 필요한 항목을 추가하는 PowerShell 스크립트(`setup-environment.ps1`)가 포함되어 있습니다.
+## 목적
 
-## 포함된 파일
+`setup-environment.ps1`은 Windows 환경에서 개발 도구(Chocolatey, Git, GitHub CLI(gh), MSYS2)를 자동으로 설치하고
+필요한 실행 경로를 사용자(User) 범위의 PATH에 추가하는 보조 스크립트입니다.
 
-- `README.md` ? 이 파일
-- `LICENSE` ? MIT 라이선스(저작권자 자리표시자)
-- `.gitignore` ? 일반적인 항목
-- `AutoGitDude.ps1` ? 샘플 PowerShell 스크립트
-- `setup-environment.ps1` ? 개발환경 설치/설정 스크립트 (Windows)
+## 사전 준비
 
-## 빠른 시작
+- 인터넷 연결
+- PowerShell(권장: Windows PowerShell 5.1 이상)
+- Chocolatey 설치가 필요한 경우 관리자 권한이 요구될 수 있습니다(스크립트는 비관리자 시도 후 실패 시 안내함).
 
-1. 저장소를 클론하거나 로컬에서 작업을 이어갑니다.
-2. (선택) `setup-environment.ps1`로 개발 도구 설치 및 PATH 설정을 자동으로 시도할 수 있습니다. 아래 "환경 설정 스크립트" 섹션을 참고하세요.
+## 빠른 실행(권장)
 
-## 환경 설정 스크립트: `setup-environment.ps1`
-
-이 스크립트는 다음 작업을 시도합니다:
-
-- Chocolatey 설치(미설치시) ? 관리자 권한이 필요할 수 있음
-- `choco`로 `git`, `gh`(GitHub CLI), `msys2` 설치
-- 설치된 도구의 실행 파일(예: msys2의 `usr\bin`, Git의 `cmd`)을 사용자(User) 범위의 PATH에 추가
-
-중요 사항:
-
-- 스크립트는 기본적으로 사용자 범위의 PATH를 수정하므로 관리자 권한 없이 실행할 수 있습니다. 다만 Chocolatey 또는 일부 패키지(msys2 등)는 관리자 권한으로 설치해야 할 수 있습니다.
-- 설치 실패 시 관리자 권한으로 직접 설치한 뒤 스크립트를 다시 실행하세요.
-
-실행 방법(PowerShell에서):
+1. PowerShell을 열고 리포지터리 루트로 이동:
 
 ```powershell
 Set-Location 'G:\project\AutoGitDude'
-# 권장: 관리자 권한 불필요(사용자 PATH 적용) ? 다만 일부 설치는 관리자 권한 필요
+```
+
+2. 스크립트 실행:
+
+```powershell
 .\setup-environment.ps1
 ```
 
-GitHub CLI 로그인(gh 사용을 원하면):
+3. (선택) GitHub CLI 사용을 원하면 로그인:
 
 ```powershell
-# 설치 후
 gh auth login --hostname github.com --web
 ```
 
-스크립트 동작 요약:
+## 스크립트 동작 요약
 
-- 스크립트는 설치 시도를 수행하고, 설치된 도구를 찾으면 사용자 PATH에 추가합니다.
-- 변경된 PATH는 새 셸에서 반영됩니다(로그아웃/로그인 또는 새 PowerShell 창).
+- Chocolatey가 없으면 설치 시도(관리자 권한 필요할 수 있음).
+- `choco`로 `git`, `gh`, `msys2`를 설치(옵션으로 제어 가능).
+- 설치된 도구의 실행 경로(예: `C:\msys64\usr\bin`, `C:\Program Files\Git\cmd`)를 사용자 PATH에 추가.
+- 실행 후 추가된 경로/스킵된 경로/실패한 경로 요약을 출력.
 
-## 다음 단계(권장)
+## 권장 사항 및 주의
 
-- `setup-environment.ps1` 실행 후 `gh auth login`으로 GitHub에 로그인하세요.
-- README에 사용법을 더 추가하거나 CI(예: GitHub Actions) 템플릿을 넣고 싶으면 요청하세요.
+- Chocolatey 및 일부 패키지 설치는 관리자 권한이 필요합니다. 설치 실패 시 관리자 권한으로 다시 실행하세요.
+- PATH 변경은 현재 세션에는 반영되지 않습니다. 새 PowerShell 창을 열거나 로그아웃/로그인하여 반영하세요.
+- 필요 시 `README.md`는 UTF-8(BOM)으로 저장하면 한글 표시 문제를 줄일 수 있습니다.
 
-## 라이선스
+## 문제 발생 시
 
-MIT License ? `LICENSE` 파일을 참고하세요. `[Your Name]`을 실제 저작권자로 바꿔주세요.
+- 실행 로그(터미널 출력)를 복사해서 알려주시면 진단을 도와드리겠습니다.
+- 추가적으로 설치 로그 파일 저장 기능이나 더 많은 경로 후보 추가를 원하면 요청하세요.
 
 ---
+
 생성일: 2025
-
-## 인코딩(글꼴 깨짐) 문제 해결 안내
-
-Windows 환경에서 에디터나 터미널에서 README가 한글로 깨져 보일 때는 파일 인코딩이 문제인 경우가 많습니다. 이 리포지터리는 UTF-8(BOM) 인코딩을 권장합니다.
-
-다음 PowerShell 명령으로 현재 `README.md`를 UTF-8(BOM)으로 변환할 수 있습니다 (PowerShell 5.1/Windows PowerShell에서 동작합니다):
-
-```powershell
-# 현재 디렉터리에서 실행
-$text = Get-Content -Raw -Path .\README.md
-[System.IO.File]::WriteAllText((Resolve-Path .\README.md).Path, $text, New-Object System.Text.UTF8Encoding $true)
-```
-
-변환 후에는 편집기(또는 터미널)를 다시 열면 한글 글꼴 깨짐 현상이 해결되는지 확인하세요.
-
-또 다른 방법: Visual Studio Code 등에서 파일 우측 하단의 인코딩 표시를 클릭하여 "UTF-8 with BOM"으로 재저장하면 됩니다.
-
----
-
-필요하시면 제가 저장소의 `README.md`를 바로 UTF-8(BOM)으로 변환하고 커밋해 드릴게요.
 ---
 생성일: 2025
