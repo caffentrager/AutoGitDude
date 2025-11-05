@@ -20,8 +20,29 @@ param(
     [bool]$InstallChocolatey = $true,
     [bool]$InstallGit = $true,
     [bool]$InstallGh = $true,
-    [bool]$InstallMsys2 = $true
+    [bool]$InstallMsys2 = $true,
+    [string]$LogFile = '.\setup-environment.log',
+    [switch]$Undo
 )
+
+function Write-Log {
+    param(
+        [string]$Message,
+        [string]$Level = 'INFO'
+    )
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $line = "[$ts] [$Level] $Message"
+    try {
+        $dir = Split-Path -Path $LogFile -Parent
+        if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $line | Out-File -FilePath $LogFile -Encoding utf8 -Append
+    }
+    catch {
+        # 로그 파일에 쓸 수 없는 경우 무시하되 화면에는 출력
+    }
+    Write-Host $line
+}
+
 
 
 function Add-ToUserPath {
@@ -33,7 +54,7 @@ function Add-ToUserPath {
     if (-not (Test-Path variable:FailedPaths)) { Set-Variable -Name FailedPaths -Value @() -Scope Script }
 
     if (-not (Test-Path -Path $NewPath -PathType Any)) {
-        Write-Host "경로가 존재하지 않습니다: $NewPath" -ForegroundColor Yellow
+        Write-Log "경로가 존재하지 않습니다: $NewPath" 'WARN'
         $script:FailedPaths += $NewPath
         return $false
     }
@@ -57,7 +78,7 @@ function Add-ToUserPath {
     }
 
     if ($exists) {
-        Write-Host "이미 User PATH에 포함됨(스킵): $full" -ForegroundColor Yellow
+        Write-Log "이미 User PATH에 포함됨(스킵): $full" 'WARN'
         $script:SkippedPaths += $full
         return $true
     }
@@ -69,12 +90,12 @@ function Add-ToUserPath {
     $newValue = $newValue + $full
     try {
         [Environment]::SetEnvironmentVariable('Path', $newValue, 'User')
-        Write-Host "User PATH에 추가됨: $full" -ForegroundColor Green
+        Write-Log "User PATH에 추가됨: $full" 'INFO'
         $script:AddedPaths += $full
         return $true
     }
     catch {
-        Write-Host "User PATH에 추가하는데 실패했습니다: $_" -ForegroundColor Red
+        Write-Log "User PATH에 추가하는데 실패했습니다: $_" 'ERROR'
         $script:FailedPaths += $full
         return $false
     }
@@ -83,6 +104,57 @@ function Add-ToUserPath {
 Write-Host '주의: 이 스크립트는 기본적으로 사용자(User) 범위의 PATH를 수정합니다. 일부 설치(예: Chocolatey)는 관리자 권한이 필요할 수 있습니다.' -ForegroundColor Yellow
 
 Write-Host "== 시작: 환경 구성 스크립트 ==" -ForegroundColor Cyan
+Write-Log "Script started. Log file: $LogFile" 'INFO'
+
+    if ($Undo) { 
+    Write-Log "Undo mode requested. Attempting to revert last added PATH entries from log: $LogFile" 'INFO'
+    if (-not (Test-Path $LogFile)) {
+        Write-Log "Log file not found: $LogFile" 'ERROR'
+        exit 1
+    }
+    # Read log lines and find last JSON summary line
+    $jsonLines = Get-Content -Path $LogFile -ErrorAction SilentlyContinue | Where-Object { $_ -match '^{"Timestamp' -or $_ -match '"Added":' }
+    if (-not $jsonLines) {
+        # try to find last line that looks like JSON
+        $lastLine = Get-Content -Path $LogFile -ErrorAction SilentlyContinue | Select-Object -Last 1
+    }
+    else { $lastLine = $jsonLines | Select-Object -Last 1 }
+    try {
+        $record = $lastLine | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        Write-Log "로그에서 복원할 JSON 기록을 찾지 못했습니다. 수동으로 PATH를 편집하세요." 'ERROR'
+        exit 1
+    }
+    if (-not $record.Added) {
+        Write-Log "복원할 Added 경로가 없습니다." 'WARN'
+        exit 0
+    }
+    $userPath = [Environment]::GetEnvironmentVariable('Path','User')
+    $items = @()
+    if ($userPath) { $items = $userPath.Split(';') | Where-Object { $_ -ne '' } }
+    $removed = @()
+    foreach ($p in $record.Added) {
+        $match = $items | Where-Object { 
+            try { (Get-Item -LiteralPath $_ -ErrorAction SilentlyContinue).FullName -ieq (Get-Item -LiteralPath $p -ErrorAction SilentlyContinue).FullName } catch { $_ -ieq $p }
+        }
+        if ($match) {
+            $items = $items | Where-Object { $_ -notin $match }
+            $removed += $match
+        }
+    }
+    $newPath = $items -join ';'
+    try {
+        [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
+        Write-Log "Removed PATH entries: $($removed -join ', ')" 'INFO'
+        Write-Log "Undo completed." 'INFO'
+        exit 0
+    }
+    catch {
+        Write-Log "Undo failed: $_" 'ERROR'
+        exit 1
+    }
+}
 
 # 1) Chocolatey 설치 (없을 때)
 if ($InstallChocolatey) {
@@ -122,7 +194,7 @@ function Install-ChocoPackage {
         $installed = $false
     }
     if ($installed) {
-        Write-Host "$PackageName(은)는 이미 설치되어 있습니다." -ForegroundColor Yellow
+        Write-Log "$PackageName(은)는 이미 설치되어 있습니다." 'WARN'
     }
     else {
         Write-Host "$PackageName 설치 중..." -ForegroundColor Green
@@ -130,7 +202,7 @@ function Install-ChocoPackage {
             choco install $PackageName -y --no-progress
         }
         catch {
-            Write-Host "choco 설치 명령이 실패했습니다: $_" -ForegroundColor Red
+            Write-Log "choco 설치 명령이 실패했습니다: $_" 'ERROR'
         }
     }
 }
@@ -150,11 +222,11 @@ if ($InstallMsys2) {
     Install-ChocoPackage -PackageName 'msys2'
 
     # msys2의 bin 경로 후보들
-    $candidates = @(
-        'C:\tools\msys2\usr\bin',
-        'C:\msys64\usr\bin',
-        (Join-Path $env:ChocolateyInstall 'lib\msys2\tools\msys2\usr\bin')
-    )
+    $candidates = @('C:\tools\msys2\usr\bin','C:\msys64\usr\bin')
+    if ($env:ChocolateyInstall) {
+        $chocoMsysPath = Join-Path $env:ChocolateyInstall 'lib\msys2\tools\msys2\usr\bin'
+        $candidates += $chocoMsysPath
+    }
     $found = $null
     foreach ($p in $candidates) {
         if ($p -and (Test-Path $p)) { $found = $p; break }
@@ -164,15 +236,15 @@ if ($InstallMsys2) {
         $alt = Get-ChildItem -Path 'C:\' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'msys' } | Select-Object -First 1
         if ($alt) {
             $trial = Join-Path $alt.FullName 'usr\bin'
-            if (Test-Path $trial) { $found = $trial }
+                if (Test-Path $trial) { $found = $trial }
         }
     }
     if ($found) {
-        Write-Host "MSYS2 바이너리 경로 발견: $found" -ForegroundColor Green
+            Write-Log "MSYS2 바이너리 경로 발견: $found" 'INFO'
         Add-ToUserPath -NewPath $found
     }
     else {
-        Write-Host "MSYS2 설치 후 bin 경로를 찾지 못했습니다. 수동으로 경로를 확인하여 PATH에 추가하세요." -ForegroundColor Yellow
+            Write-Log "MSYS2 설치 후 bin 경로를 찾지 못했습니다. 수동으로 경로를 확인하여 PATH에 추가하세요." 'WARN'
     }
 
     # 추가 요청: C:\msys64 및 C:\msys64\usr\bin을 User PATH에 추가 시도
@@ -224,6 +296,29 @@ if ($pathItems) {
     $items = $pathItems.Split(';') | Where-Object { $_ -ne '' }
     if ($items.Count -ge 5) { $items[-5..-1] | ForEach-Object { Write-Host " - $_" } }
     else { $items | ForEach-Object { Write-Host " - $_" } }
+}
+
+# Write summary to log as JSON record (avoid inline 'if' expressions which can break in some PS versions)
+$added = @()
+$skipped = @()
+$failed = @()
+if (Test-Path variable:AddedPaths -ErrorAction SilentlyContinue) { $added = $script:AddedPaths }
+if (Test-Path variable:SkippedPaths -ErrorAction SilentlyContinue) { $skipped = $script:SkippedPaths }
+if (Test-Path variable:FailedPaths -ErrorAction SilentlyContinue) { $failed = $script:FailedPaths }
+
+$summary = [PSCustomObject]@{
+    Timestamp = (Get-Date).ToString('o')
+    Added = $added
+    Skipped = $skipped
+    Failed = $failed
+}
+try {
+    $json = $summary | ConvertTo-Json -Depth 5 -Compress
+    $json | Out-File -FilePath $LogFile -Encoding utf8 -Append
+    Write-Log "Summary appended to log: $LogFile" 'INFO'
+}
+catch {
+    Write-Log "Summary write failed: $_" 'ERROR'
 }
 
 # 끝
