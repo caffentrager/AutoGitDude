@@ -16,3 +16,6 @@ node_modules/
 *~
 
 # Keep PowerShell scripts (do not ignore *.ps1)
+
+# 개인 사용자 데이터 파일(토큰 등) - 실수로 커밋하지 않도록 무시
+userdata.login

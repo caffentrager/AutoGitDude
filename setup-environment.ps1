@@ -1,6 +1,6 @@
 <#
   setup-environment.ps1
-  목적: Windows에서 Chocolatey 설치(없을 경우), choco로 git/gh/msys2 설치, 그리고 필요한 경로를 Machine PATH에 추가
+    목적: Windows에서 Chocolatey 설치(없을 경우), choco로 git/gh 설치, 그리고 필요한 경로를 Machine PATH에 추가
 
   사용법(관리자 권한 권장):
     PowerShell에서 관리자 권한으로 실행 후:
@@ -10,7 +10,6 @@
     -InstallChocolatey (default: true)
     -InstallGit (default: true)
     -InstallGh (default: true)
-    -InstallMsys2 (default: true)
 
   주의: 이 스크립트는 머신 환경변수(Path) 수정(관리자 권한 필요)을 시도합니다.
 #>
@@ -20,7 +19,7 @@ param(
     [bool]$InstallChocolatey = $true,
     [bool]$InstallGit = $true,
     [bool]$InstallGh = $true,
-    [bool]$InstallMsys2 = $true
+    # (참고) 과거 옵션 정리: 일부 오래된 옵션은 더이상 사용되지 않습니다.
 )
 
 function Write-Log { param([string]$Message, [string]$Level = 'INFO')
@@ -32,6 +31,8 @@ function Write-Log { param([string]$Message, [string]$Level = 'INFO')
     }
 }
 
+# 공통 유틸리티 로드(Write-Log, Normalize-PathString 등)
+. "$PSScriptRoot\lib\common.ps1"
 
 
 function Add-ToUserPath {
@@ -43,7 +44,7 @@ function Add-ToUserPath {
     if (-not (Test-Path variable:FailedPaths)) { Set-Variable -Name FailedPaths -Value @() -Scope Script }
 
     if (-not (Test-Path -Path $NewPath -PathType Any)) {
-        Write-Host "경로가 존재하지 않습니다: $NewPath" -ForegroundColor Yellow
+        Write-Log "경로가 존재하지 않습니다: $NewPath" 'WARN'
         $script:FailedPaths += $NewPath
         return $false
     }
@@ -59,15 +60,16 @@ function Add-ToUserPath {
     $currentItems = @()
     if ($current) { $currentItems = $current.Split(';') | Where-Object { $_ -ne '' } }
 
-    # Normalize comparison: case-insensitive exact match
+    # Normalize 비교: Normalize-PathString 사용
     $exists = $false
+    $normFull = Normalize-PathString $full
     foreach ($it in $currentItems) {
-        try { $itFull = (Get-Item -LiteralPath $it -ErrorAction SilentlyContinue).FullName } catch { $itFull = $it }
-        if ($itFull -and ($itFull -ieq $full)) { $exists = $true; break }
+        $itNorm = Normalize-PathString $it
+        if ($itNorm -and ($itNorm -eq $normFull)) { $exists = $true; break }
     }
 
     if ($exists) {
-        Write-Host "이미 User PATH에 포함됨(스킵): $full" -ForegroundColor Yellow
+        Write-Log "이미 User PATH에 포함됨(스킵): $full" 'WARN'
         $script:SkippedPaths += $full
         return $true
     }
@@ -78,8 +80,8 @@ function Add-ToUserPath {
     if ($newValue -ne '') { $newValue = $newValue + $separator }
     $newValue = $newValue + $full
     try {
-        [Environment]::SetEnvironmentVariable('Path', $newValue, 'User')
-        Write-Host "User PATH에 추가됨: $full" -ForegroundColor Green
+    [Environment]::SetEnvironmentVariable('Path', $newValue, 'User')
+    Write-Log "User PATH에 추가됨: $full" 'INFO'
         $script:AddedPaths += $full
 
         # 현재 PowerShell 세션의 프로세스 PATH에도 즉시 반영하여 명령을 바로 사용할 수 있게 함
@@ -88,13 +90,14 @@ function Add-ToUserPath {
             $procItems = @()
             if ($procPath) { $procItems = $procPath.Split(';') | Where-Object { $_ -ne '' } }
             $existsInProc = $false
+            $normFull = Normalize-PathString $full
             foreach ($it in $procItems) {
-                try { $itFull = (Get-Item -LiteralPath $it -ErrorAction SilentlyContinue).FullName } catch { $itFull = $it }
-                if ($itFull -and ($itFull -ieq $full)) { $existsInProc = $true; break }
+                $itNorm = Normalize-PathString $it
+                if ($itNorm -and ($itNorm -eq $normFull)) { $existsInProc = $true; break }
             }
             if (-not $existsInProc) {
                 if ($env:Path -and ($env:Path -ne '')) { $env:Path = $env:Path + ';' + $full } else { $env:Path = $full }
-                Write-Host "(세션) PATH에 즉시 추가됨: $full" -ForegroundColor Cyan
+                Write-Log "(세션) PATH에 즉시 추가됨: $full" 'INFO'
             }
         }
         catch {
@@ -103,35 +106,36 @@ function Add-ToUserPath {
         return $true
     }
     catch {
-        Write-Host "User PATH에 추가하는데 실패했습니다: $_" -ForegroundColor Red
+        Write-Log "User PATH에 추가하는데 실패했습니다: $_" 'ERROR'
         $script:FailedPaths += $full
         return $false
     }
 }
 
-Write-Host '주의: 이 스크립트는 기본적으로 사용자(User) 범위의 PATH를 수정합니다. 일부 설치(예: Chocolatey)는 관리자 권한이 필요할 수 있습니다.' -ForegroundColor Yellow
+Write-Log '주의: 이 스크립트는 기본적으로 사용자(User) 범위의 PATH를 수정합니다. 일부 설치(예: Chocolatey)는 관리자 권한이 필요할 수 있습니다.' 'WARN'
 
-Write-Host "== 시작: 환경 구성 스크립트 ==" -ForegroundColor Cyan
+Write-Log "== 시작: 환경 구성 스크립트 ==" 'INFO'
 
 # 1) Chocolatey 설치 (없을 때)
 if ($InstallChocolatey) {
     if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-        Write-Host "Chocolatey가 설치되어 있지 않습니다. 설치를 시도합니다 (관리자 권한 필요할 수 있음)..." -ForegroundColor Green
+        Write-Log "Chocolatey가 설치되어 있지 않습니다. 설치를 시도합니다 (관리자 권한 필요할 수 있음)..." 'INFO'
         Set-ExecutionPolicy Bypass -Scope Process -Force
         try {
-            $scriptText = (New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')
-            Invoke-Expression $scriptText
-            Write-Host "Chocolatey 설치 시도 완료." -ForegroundColor Green
+            # PowerShell 5.1 환경에서 안정적으로 동작하도록 Invoke-WebRequest 사용
+            $installScript = (Invoke-WebRequest -Uri 'https://community.chocolatey.org/install.ps1' -UseBasicParsing -ErrorAction Stop).Content
+            Invoke-Expression $installScript
+            Write-Log "Chocolatey 설치 시도 완료." 'INFO'
         }
         catch {
-            Write-Host "Chocolatey 설치 실패(관리자 권한 필요할 수 있음): $_" -ForegroundColor Red
-            Write-Host "관리자 권한으로 설치하거나 수동 설치 후 스크립트를 다시 실행하세요." -ForegroundColor Yellow
+            Write-Log "Chocolatey 설치 실패(관리자 권한 필요할 수 있음): $_" 'ERROR'
+            Write-Log "관리자 권한으로 설치하거나 수동 설치 후 스크립트를 다시 실행하세요." 'WARN'
         }
         # refreshenv가 사용 가능하면 실행
-        if (Get-Command refreshenv -ErrorAction SilentlyContinue) { refreshenv }
+        if (Get-Command refreshenv -ErrorAction SilentlyContinue) { try { refreshenv } catch { } }
     }
     else {
-        Write-Host "Chocolatey가 이미 설치되어 있습니다." -ForegroundColor Yellow
+        Write-Log "Chocolatey가 이미 설치되어 있습니다." 'WARN'
     }
 }
 
@@ -141,25 +145,28 @@ function Install-ChocoPackage {
         [string]$PackageName
     )
     if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-        Write-Host "choco 명령을 찾을 수 없습니다. Chocolatey가 제대로 설치되어 있는지 확인하세요." -ForegroundColor Red
+        Write-Log "choco 명령을 찾을 수 없습니다. Chocolatey가 제대로 설치되어 있는지 확인하세요." 'ERROR'
         return
     }
     try {
-        $installed = choco list --localonly --exact $PackageName | Select-String "^$PackageName " -Quiet
+        # --limit-output는 'package|version' 형식으로 출력하므로 이를 검사
+        $installed = $false
+        $out = choco list --localonly --exact $PackageName --limit-output 2>$null
+        if ($out -and ($out -match "^$PackageName\|")) { $installed = $true }
     }
     catch {
         $installed = $false
     }
     if ($installed) {
-        Write-Host "$PackageName(은)는 이미 설치되어 있습니다." -ForegroundColor Yellow
+        Write-Log "$PackageName(은)는 이미 설치되어 있습니다." 'WARN'
     }
     else {
-        Write-Host "$PackageName 설치 중..." -ForegroundColor Green
+        Write-Log "$PackageName 설치 중..." 'INFO'
         try {
             choco install $PackageName -y --no-progress
         }
         catch {
-            Write-Host "choco 설치 명령이 실패했습니다: $_" -ForegroundColor Red
+            Write-Log "choco 설치 명령이 실패했습니다: $_" 'ERROR'
         }
     }
 }
@@ -174,36 +181,7 @@ if ($InstallGh) {
     Install-ChocoPackage -PackageName 'gh'
 }
 
-# 4) msys2 설치
-if ($InstallMsys2) {
-    Install-ChocoPackage -PackageName 'msys2'
-
-    # msys2의 bin 경로 후보들
-    $candidates = @('C:\tools\msys2\usr\bin','C:\msys64\usr\bin')
-    if ($env:ChocolateyInstall) {
-        $chocoMsysPath = Join-Path $env:ChocolateyInstall 'lib\msys2\tools\msys2\usr\bin'
-        $candidates += $chocoMsysPath
-    }
-    $found = $null
-    foreach ($p in $candidates) {
-        if ($p -and (Test-Path $p)) { $found = $p; break }
-    }
-    if (-not $found) {
-        # 탐색: C:\tools\ 또는 chocolatey 폴더
-        $alt = Get-ChildItem -Path 'C:\' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'msys' } | Select-Object -First 1
-        if ($alt) {
-            $trial = Join-Path $alt.FullName 'usr\bin'
-                if (Test-Path $trial) { $found = $trial }
-        }
-    }
-    if ($found) {
-        Write-Host "MSYS2 바이너리 경로 발견: $found" -ForegroundColor Green
-        [void](Add-ToUserPath -NewPath $found)
-    }
-    else {
-        Write-Host "MSYS2 설치 후 bin 경로를 찾지 못했습니다. 수동으로 경로를 확인하여 PATH에 추가하세요." -ForegroundColor Yellow
-    }
-}
+# (참고) 불필요한 오래된 설치 옵션 관련 로직은 제거되었습니다.
 
 # git, gh 경로가 자동으로 PATH에 추가되지 않았다면 탐색 후 추가
 try {
@@ -221,7 +199,7 @@ try {
     }
 }
 catch {
-    Write-Host "경로 탐색 중 오류: $_" -ForegroundColor Red
+    Write-Log "경로 탐색 중 오류: $_" 'ERROR'
 }
 
 # --------------------------------------------------
@@ -229,7 +207,7 @@ catch {
 # --------------------------------------------------
 function Get-CommonInstallPaths {
     param(
-        [string[]]$Programs = @('choco','git','gh','msys2')
+    [string[]]$Programs = @('choco','git','gh')
     )
 
     $results = @{}
@@ -250,10 +228,7 @@ function Get-CommonInstallPaths {
                 $candidates += 'C:\Program Files\GitHub CLI'
                 $candidates += 'C:\Program Files\GitHub CLI\bin'
             }
-            'msys2' {
-                $candidates += 'C:\msys64\usr\bin'
-                $candidates += 'C:\tools\msys2\usr\bin'
-            }
+            # (과거) 일부 오래된 후보 경로는 현재 검사 대상에서 제외됨
             default {
                 # 빈 후보집합으로 시작
             }
@@ -288,12 +263,12 @@ function Get-CommonInstallPaths {
 }
 
 # 검사 및 요약용 호출
-$DetectedPrograms = Get-CommonInstallPaths -Programs @('choco','git','gh','msys2')
+$DetectedPrograms = Get-CommonInstallPaths -Programs @('choco','git','gh')
 
-Write-Host "검출된 일반 설치 경로(Detection):" -ForegroundColor Cyan
+Write-Log "검출된 일반 설치 경로(감지):" 'INFO'
 foreach ($k in $DetectedPrograms.Keys) {
     $v = $DetectedPrograms[$k]
-    if ($v) { Write-Host " - $k : $v" -ForegroundColor Green } else { Write-Host " - $k : (미검출)" -ForegroundColor Yellow }
+    if ($v) { Write-Log " - $k : $v" 'INFO' } else { Write-Log " - $k : (미검출)" 'WARN' }
 }
 
 # 자동 추가: 명령이 사용 불가능하면 검출된 경로를 User PATH에 추가 시도
@@ -302,10 +277,10 @@ foreach ($k in $DetectedPrograms.Keys) {
     if (-not $v) { continue }
     $cmd = Get-Command $k -ErrorAction SilentlyContinue
     if ($cmd) {
-        Write-Host "$k 명령이 이미 사용 가능하므로 PATH 추가를 스킵합니다." -ForegroundColor Yellow
+        Write-Log "$k 명령이 이미 사용 가능하므로 PATH 추가를 스킵합니다." 'WARN'
         continue
     }
-    Write-Host "자동 추가 시도: $k 경로를 User PATH에 추가합니다: $v" -ForegroundColor Cyan
+    Write-Log "자동 추가 시도: $k 경로를 User PATH에 추가합니다: $v" 'INFO'
     [void](Add-ToUserPath -NewPath $v)
 
     # 만약 User PATH에는 있지만 현재 세션에서 명령을 찾을 수 없는 경우(또는 위에서 세션 반영이 실패했을 경우), 세션 PATH에 강제로 추가 시도
@@ -322,7 +297,7 @@ foreach ($k in $DetectedPrograms.Keys) {
             }
             if (-not $inProc) {
                 if ($env:Path -and ($env:Path -ne '')) { $env:Path = $env:Path + ';' + $v } else { $env:Path = $v }
-                Write-Host "(세션) PATH에 강제 추가됨: $v" -ForegroundColor Cyan
+                Write-Log "(세션) PATH에 강제 추가됨: $v" 'INFO'
             }
 
             # refreshenv 가능하면 시도
@@ -335,46 +310,16 @@ foreach ($k in $DetectedPrograms.Keys) {
 }
 
 
-Write-Host '== 완료: 설치/환경 설정이 끝났습니다. 쉘을 재시작하거나 로그아웃/로그인하여 PATH 변경을 반영하세요. ==' -ForegroundColor Cyan
+Write-Log '== 완료: 설치/환경 설정이 끝났습니다. 쉘을 재시작하거나 로그아웃/로그인하여 PATH 변경을 반영하세요. ==' 'INFO'
 
 # 요약 출력
-Write-Host "Installed components summary:" -ForegroundColor Cyan
+Write-Log "설치된 구성요약:" 'INFO'
 
 # 더 친절한 요약: 명령이 있으면 경로+버전(가능한 경우), 없으면 감지된 경로 출력
-$programsToShow = @('choco','git','gh','msys2')
+$programsToShow = @('choco','git','gh')
 foreach ($p in $programsToShow) {
     $cmd = Get-Command $p -ErrorAction SilentlyContinue
-    if ($p -ieq 'msys2') {
-        # msys2는 'msys2'라는 단일 명령이 없으므로 bash/pacman 실행파일을 검사
-        $det = $null
-        if ($DetectedPrograms.ContainsKey('msys2')) { $det = $DetectedPrograms['msys2'] }
-        $exeFound = $null
-        if ($det) {
-            foreach ($exeCandidate in @('bash.exe','usr\bin\bash.exe','pacman.exe')) {
-                $candidatePath = Join-Path $det $exeCandidate
-                if (Test-Path $candidatePath) { $exeFound = $candidatePath; break }
-            }
-        }
-        if ($exeFound) {
-            $ver = $null
-            try {
-                $out = & "$exeFound" --version 2>$null
-                if ($out) {
-                    # msys2(bash) prints multi-line license text; use the first non-empty line and limit length
-                    $lines = ($out -split "\r?\n") | Where-Object { $_ -and ($_.Trim() -ne '') }
-                    if ($lines.Count -gt 0) {
-                        $first = $lines[0].Trim()
-                        if ($first.Length -gt 140) { $ver = $first.Substring(0,140) + '...'} else { $ver = $first }
-                    }
-                }
-            } catch { }
-            if ($ver) { Write-Host " - msys2 : $exeFound - $ver" } else { Write-Host " - msys2 : $exeFound" }
-        }
-        else {
-            if ($det) { Write-Host " - msys2 : (명령 없음) 검출된 경로 = $det" -ForegroundColor Yellow } else { Write-Host " - msys2 : (명령/경로 없음)" -ForegroundColor Yellow }
-        }
-        continue
-    }
+    # (특정 도구용 특수 요약 출력은 현재 제공하지 않습니다)
 
     if ($cmd) {
         # 시도: --version 호출
@@ -387,41 +332,37 @@ foreach ($p in $programsToShow) {
                 $ver = $ver.Trim()
             }
         } catch { }
-        if ($ver) { Write-Host " - $p : $($cmd.Source) - $ver" } else { Write-Host " - $p : $($cmd.Source)" }
+        if ($ver) { Write-Log " - $p : $($cmd.Source) - $ver" 'INFO' } else { Write-Log " - $p : $($cmd.Source)" 'INFO' }
     }
     else {
         $det = $null
         if ($DetectedPrograms.ContainsKey($p)) { $det = $DetectedPrograms[$p] }
-        if ($det) { Write-Host " - $p : (명령 없음) 검출된 경로 = $det" -ForegroundColor Yellow } else { Write-Host " - $p : (명령/경로 없음)" -ForegroundColor Yellow }
+        if ($det) { Write-Log " - $p : (명령 없음) 검출된 경로 = $det" 'WARN' } else { Write-Log " - $p : (명령/경로 없음)" 'WARN' }
     }
 }
 
-Write-Host "추가된(Added) 경로:" -ForegroundColor Cyan
+Write-Log "추가된(Added) 경로:" 'INFO'
 if (Test-Path variable:AddedPaths -ErrorAction SilentlyContinue -PathType Any) {
     $addedUnique = $script:AddedPaths | Where-Object { $_ } | Select-Object -Unique
-    if ($addedUnique.Count -gt 0) { $addedUnique | ForEach-Object { Write-Host " - $_" } } else { Write-Host " - (없음)" }
-} else { Write-Host " - (없음)" }
+    if ($addedUnique.Count -gt 0) { $addedUnique | ForEach-Object { Write-Log " - $_" 'INFO' } } else { Write-Log " - (없음)" 'INFO' }
+} else { Write-Log " - (없음)" 'INFO' }
 
-Write-Host "스킵된(Skipped) 경로(이미 존재):" -ForegroundColor Yellow
+Write-Log "스킵된(Skipped) 경로(이미 존재):" 'WARN'
 if (Test-Path variable:SkippedPaths -ErrorAction SilentlyContinue -PathType Any) {
     $skippedUnique = $script:SkippedPaths | Where-Object { $_ } | Select-Object -Unique
-    if ($skippedUnique.Count -gt 0) { $skippedUnique | ForEach-Object { Write-Host " - $_" } } else { Write-Host " - (없음)" }
-} else { Write-Host " - (없음)" }
+    if ($skippedUnique.Count -gt 0) { $skippedUnique | ForEach-Object { Write-Log " - $_" 'WARN' } } else { Write-Log " - (없음)" 'WARN' }
+} else { Write-Log " - (없음)" 'WARN' }
 
-Write-Host "실패(Failed) 경로(추가 실패 또는 오류):" -ForegroundColor Red
+Write-Log "실패(Failed) 경로(추가 실패 또는 오류):" 'ERROR'
 if (Test-Path variable:FailedPaths -ErrorAction SilentlyContinue -PathType Any) {
     $failedUnique = $script:FailedPaths | Where-Object { $_ } | Select-Object -Unique
-    if ($failedUnique.Count -gt 0) { $failedUnique | ForEach-Object { Write-Host " - $_" } } else { Write-Host " - (없음)" }
-} else { Write-Host " - (없음)" }
+    if ($failedUnique.Count -gt 0) { $failedUnique | ForEach-Object { Write-Log " - $_" 'ERROR' } } else { Write-Log " - (없음)" 'ERROR' }
+} else { Write-Log " - (없음)" 'ERROR' }
 
-Write-Host "User PATH 최근 항목(요약):" -ForegroundColor Cyan
+Write-Log "User PATH 최근 항목(요약):" 'INFO'
 $pathItems = [Environment]::GetEnvironmentVariable('Path','User')
 if ($pathItems) {
     $items = $pathItems.Split(';') | Where-Object { $_ -ne '' }
-    if ($items.Count -ge 5) { $items[-5..-1] | ForEach-Object { Write-Host " - $_" } }
-    else { $items | ForEach-Object { Write-Host " - $_" } }
+    if ($items.Count -ge 5) { $items[-5..-1] | ForEach-Object { Write-Log " - $_" 'INFO' } }
+    else { $items | ForEach-Object { Write-Log " - $_" 'INFO' } }
 }
-
-# 끝
-
-# 끝
