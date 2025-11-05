@@ -27,15 +27,15 @@ param(
 
 if (-not (Test-Path -Path $Path)) {
     Write-Log "userdata.login 파일을 찾을 수 없습니다. 템플릿을 생성합니다: $Path" 'WARN'
-        $template = @'
-    {
-        "git": {
-            "name": "Your Name",
-            "email": "you@example.com"
-        },
-        "notes": "이 파일은 민감 정보를 포함할 수 있습니다. 실사용 시에는 저장소에 커밋하지 마세요. 권장 로그인 방법: gh auth login --web (브라우저 기반 인증)."
-    }
-    '@
+                $template = @'
+{
+    "git": {
+        "name": "Your Name",
+        "email": "you@example.com"
+    },
+    "notes": "이 파일은 민감 정보를 포함할 수 있습니다. 실사용 시에는 저장소에 커밋하지 마세요. 권장 로그인 방법: gh auth login --web (브라우저 기반 인증)."
+}
+'@
     try {
         $dir = Split-Path -Path $Path -Parent
         if (-not (Test-Path $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null }
