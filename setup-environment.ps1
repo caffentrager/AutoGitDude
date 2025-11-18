@@ -148,7 +148,8 @@ if ($InstallChocolatey) {
 # Helper: run choco install if available
 function Install-ChocoPackage {
     param(
-        [string]$PackageName
+        [Parameter(Mandatory=$true)]
+        [string[]]$PackageName
     )
     if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
         Write-Log "choco 명령을 찾을 수 없습니다. Chocolatey가 제대로 설치되어 있는지 확인하세요." 'ERROR'
@@ -157,23 +158,57 @@ function Install-ChocoPackage {
     try {
         # --limit-output는 'package|version' 형식으로 출력하므로 이를 검사
         $installed = $false
-        $out = choco list --localonly --exact $PackageName --limit-output 2>$null
-        if ($out -and ($out -match "^$PackageName\|")) { $installed = $true }
+        foreach ($pkg in $PackageName) {
+            try {
+                $out = choco list --localonly --exact $pkg --limit-output 2>$null
+                if ($out -and ($out -match "^$pkg\|")) { Write-Log "$pkg(은)는 이미 설치되어 있습니다." 'WARN'; return }
+            }
+            catch { }
+        }
     }
     catch {
         $installed = $false
     }
-    if ($installed) {
-        Write-Log "$PackageName(은)는 이미 설치되어 있습니다." 'WARN'
-    }
-    else {
-        Write-Log "$PackageName 설치 중..." 'INFO'
+
+    # 설치 후보들 중에서 레포지토리에 존재하는 첫 패키지를 찾아 설치
+    foreach ($pkg in $PackageName) {
         try {
-            choco install $PackageName -y --no-progress
+            $outRemote = choco list $pkg --exact --limit-output 2>$null
         }
-        catch {
-            Write-Log "choco 설치 명령이 실패했습니다: $_" 'ERROR'
+        catch { $outRemote = $null }
+
+        if ($outRemote -and ($outRemote -match "^$pkg\|")) {
+            Write-Log "$pkg 설치 중..." 'INFO'
+            try {
+                choco install $pkg -y --no-progress
+                Write-Log "$pkg 설치 명령이 완료되었습니다." 'INFO'
+                return
+            }
+            catch {
+                Write-Log "choco 설치 명령이 실패했습니다: $_" 'ERROR'
+                return
+            }
         }
+        else {
+            Write-Log "$pkg 패키지를 Chocolatey에서 찾을 수 없습니다." 'WARN'
+        }
+    }
+
+    Write-Log "모든 후보 패키지를 찾지 못했습니다: $($PackageName -join ', ')" 'ERROR'
+}
+
+function Prompt-YesNo {
+    param(
+        [string]$Message,
+        [bool]$Default = $false
+    )
+    try {
+        $resp = Read-Host "$Message (Y/N)"
+        if (-not $resp) { return $Default }
+        return $resp.Trim().ToUpper().StartsWith('Y')
+    }
+    catch {
+        return $Default
     }
 }
 
@@ -188,16 +223,62 @@ if ($InstallGh) {
 }
 
 # 4) Optional: MSYS2 설치 (선택)
+# 4) Optional: MSYS2 설치 (선택)
 if ($InstallMSYS) {
-    Write-Log "MSYS2 설치 플래그가 설정되어 있습니다. Chocolatey를 통해 MSYS2 설치를 시도합니다." 'INFO'
-    Install-ChocoPackage -PackageName 'msys2'
+    Write-Log "MSYS2 설치 플래그가 설정되어 있습니다." 'INFO'
+    $doInstall = $true
+    if ($PSBoundParameters.ContainsKey('InstallMSYS') -and -not $InstallMSYS) { $doInstall = $false }
+    # 대화형 환경에서는 사용자에게 다시 묻기
+    if ($doInstall -and (try { $Host.UI.RawUI } catch { $null })) {
+        $doInstall = Prompt-YesNo "MSYS2를 설치하시겠습니까?" $true
+    }
+    if ($doInstall) {
+        Install-ChocoPackage -PackageName @('msys2')
+
+        # 설치 검증: msys2의 pacman이 있는지 확인
+        $msysPaths = @('C:\msys64\usr\bin','C:\tools\msys64\usr\bin', (Join-Path $env:LOCALAPPDATA 'Programs\msys2\usr\bin'))
+        $pacman = $null
+        foreach ($p in $msysPaths) { $candidate = Join-Path $p 'pacman.exe'; if (Test-Path $candidate) { $pacman = $candidate; break } }
+        if ($pacman) {
+            Write-Log "MSYS2 pacman이 발견되었습니다: $pacman" 'INFO'
+            if (Prompt-YesNo "MSYS2에서 기본 빌드 도구(gcc, make 등)를 pacman으로 설치하시겠습니까?" $false) {
+                try {
+                    & $pacman -Syu --noconfirm
+                    & $pacman -S --noconfirm base-devel mingw-w64-x86_64-toolchain
+                    Write-Log "MSYS2 기본 도구 설치를 시도했습니다." 'INFO'
+                }
+                catch { Write-Log "MSYS2 도구 설치 중 오류: $_" 'ERROR' }
+            }
+        }
+        else { Write-Log "MSYS2 설치 후 pacman을 찾을 수 없습니다. 수동으로 설치/환경변수를 확인하세요." 'WARN' }
+    }
 }
 
 # 5) Optional: MinGW 설치 (선택)
 if ($InstallMingw) {
-    Write-Log "MinGW 설치 플래그가 설정되어 있습니다. Chocolatey를 통해 MinGW 설치를 시도합니다." 'INFO'
-    # 패키지 이름은 배포에 따라 다를 수 있습니다. 일반적으로 'mingw' 또는 'mingw-w64' 패키지를 사용합니다.
-    Install-ChocoPackage -PackageName 'mingw'
+    Write-Log "MinGW 설치 플래그가 설정되어 있습니다." 'INFO'
+    $doInstall = $true
+    if ($PSBoundParameters.ContainsKey('InstallMingw') -and -not $InstallMingw) { $doInstall = $false }
+    if ($doInstall -and (try { $Host.UI.RawUI } catch { $null })) {
+        $doInstall = Prompt-YesNo "MinGW를 설치하시겠습니까?" $true
+    }
+    if ($doInstall) {
+        # 후보 패키지 목록: 환경에 따라 다르므로 여러 후보 시도
+        $mingwCandidates = @('mingw','mingw-w64','mingw-w64-install','mingw-w64-bin')
+        Install-ChocoPackage -PackageName $mingwCandidates
+
+        # 설치 검증: gcc/mingw 경로 확인
+        $gccCmd = Get-Command gcc -ErrorAction SilentlyContinue
+        if (-not $gccCmd) {
+            $candidateBins = @('C:\mingw\bin','C:\Program Files\mingw-w64\mingw64\bin','C:\Program Files (x86)\mingw-w64\mingw32\bin')
+            $found = $false
+            foreach ($d in $candidateBins) {
+                if (Test-Path (Join-Path $d 'gcc.exe')) { Write-Log "MinGW gcc 발견: $d" 'INFO'; [void](Add-ToUserPath -NewPath $d); $found = $true; break }
+            }
+            if (-not $found) { Write-Log "gcc를 찾지 못했습니다. 설치가 성공했는지 확인하거나 수동으로 경로를 추가하세요." 'WARN' }
+        }
+        else { Write-Log "gcc는 이미 사용 가능합니다: $($gccCmd.Source)" 'INFO' }
+    }
 }
 
 # (참고) 불필요한 오래된 설치 옵션 관련 로직은 제거되었습니다.
