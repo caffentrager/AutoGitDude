@@ -108,6 +108,14 @@ if (-not $pacman) {
     if ($where) { $pacman = $where.Split()[0] }
 }
 
+# Fallback: search under choco installation directory recursively (handles nested msys64/msys64)
+if (-not $pacman -and (Test-Path 'C:\tools\msys64')) {
+    try {
+        $found = Get-ChildItem -Path 'C:\tools\msys64' -Filter pacman.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $pacman = $found.FullName }
+    } catch {}
+}
+
 if (-not $pacman) { Write-Log "pacman을 찾을 수 없습니다. MSYS2 설치가 제대로 되었는지 확인하세요." 'ERROR'; exit 1 }
 
 Write-Log "pacman 실행파일 발견: $pacman" 'INFO'
