@@ -119,32 +119,15 @@ Write-Log "== 시작: 환경 구성 스크립트 ==" 'INFO'
 
 # 1) Chocolatey 설치 (강제): 이미 설치되어 있어도 업그레이드/재설치를 시도합니다.
 if ($InstallChocolatey) {
-    Write-Log "Chocolatey 설치(강제)를 시도합니다 ? 이미 설치되어 있어도 업그레이드/재설치 시도합니다. (관리자 권한 필요할 수 있음)" 'INFO'
-    Set-ExecutionPolicy Bypass -Scope Process -Force
+    Write-Log "Chocolatey 설치 여부를 확인합니다. 설치되어 있으면 스킵합니다." 'INFO'
 
     $chocoCmd = Get-Command choco -ErrorAction SilentlyContinue
     if ($chocoCmd) {
-        Write-Log "choco 명령이 발견되었습니다 ? 'choco upgrade chocolatey -y'를 시도합니다..." 'INFO'
-        try {
-            choco upgrade chocolatey -y --no-progress
-            Write-Log "chocolatey 업그레이드/재설치 시도 완료." 'INFO'
-        }
-        catch {
-            Write-Log "choco로 업그레이드에 실패했습니다: $_" 'WARN'
-            Write-Log "설치 스크립트로 재설치 시도합니다..." 'INFO'
-            try {
-                $installScript = (Invoke-WebRequest -Uri 'https://community.chocolatey.org/install.ps1' -UseBasicParsing -ErrorAction Stop).Content
-                Invoke-Expression $installScript
-                Write-Log "Chocolatey 설치 스크립트 실행 완료." 'INFO'
-            }
-            catch {
-                Write-Log "Chocolatey 설치 실패(관리자 권한 필요할 수 있음): $_" 'ERROR'
-                Write-Log "관리자 권한으로 설치하거나 수동 설치 후 스크립트를 다시 실행하세요." 'WARN'
-            }
-        }
+        Write-Log "choco가 이미 설치되어 있습니다. 설치를 건너뜁니다." 'INFO'
     }
     else {
-        Write-Log "choco 명령을 찾을 수 없습니다 ? 설치 스크립트를 실행합니다..." 'INFO'
+        Write-Log "choco가 발견되지 않아 설치를 시도합니다. (관리자 권한 필요할 수 있음)" 'INFO'
+        Set-ExecutionPolicy Bypass -Scope Process -Force
         try {
             $installScript = (Invoke-WebRequest -Uri 'https://community.chocolatey.org/install.ps1' -UseBasicParsing -ErrorAction Stop).Content
             Invoke-Expression $installScript
@@ -154,10 +137,10 @@ if ($InstallChocolatey) {
             Write-Log "Chocolatey 설치 실패(관리자 권한 필요할 수 있음): $_" 'ERROR'
             Write-Log "관리자 권한으로 설치하거나 수동 설치 후 스크립트를 다시 실행하세요." 'WARN'
         }
-    }
 
-    # refreshenv가 사용 가능하면 실행
-    if (Get-Command refreshenv -ErrorAction SilentlyContinue) { try { refreshenv } catch { } }
+        # refreshenv가 사용 가능하면 실행
+        if (Get-Command refreshenv -ErrorAction SilentlyContinue) { try { refreshenv } catch { } }
+    }
 }
 
 # Helper: run choco install if available
@@ -388,70 +371,6 @@ if ($pathItems) {
     else { $items | ForEach-Object { Write-Log " - $_" 'INFO' } }
 }
 
-# --------------------------------------------------
-# Optional: 자동 로그인 (userdata.login 기반)
-#  - 리포지터리 루트의 userdata.login을 확인하여
-#    - 템플릿 상태(기본값/토큰 미설정)면 편집 요청을 띄움
-#    - 값이 채워져 있으면 scripts/login-from-userdata.ps1 를 호출하여 자동 로그인 시도
-# --------------------------------------------------
-$userdataPath = Join-Path $PSScriptRoot 'userdata.login'
-try {
-    if (Test-Path $userdataPath) {
-        $isTemplate = $false
-        try {
-            $raw = Get-Content -Raw -Path $userdataPath -ErrorAction Stop
-            $json = $raw | ConvertFrom-Json -ErrorAction Stop
-        }
-        catch {
-            $json = $null
-        }
-
-        if ($json) {
-            $name = $null; $email = $null; $token = $null
-            if ($json.git) { $name = [string]$json.git.name; $email = [string]$json.git.email }
-            if ($json.gh) { $token = [string]$json.gh.token }
-
-            if ((-not $token) -or ($token -match '<PERSONAL_ACCESS_TOKEN') -or ($name -and $name -match 'Your Name') -or ($email -and $email -match 'example.com')) {
-                $isTemplate = $true
-            }
-        }
-        else {
-            $isTemplate = $true
-        }
-
-        if ($isTemplate) {
-            Write-Log "userdata.login이 템플릿 상태이거나 필수 값이 비어 있습니다." 'WARN'
-            $resp = 'N'
-            try {
-                $resp = Read-Host "userdata.login을 지금 편집하시겠습니까? (Y/N)"
-            } catch {
-                # 비대화형 환경에서는 Read-Host가 실패할 수 있음; 기본은 N
-                $resp = 'N'
-            }
-
-            if ($resp -and $resp.Trim().ToUpper().StartsWith('Y')) {
-                try {
-                    Start-Process -FilePath 'notepad.exe' -ArgumentList $userdataPath -Wait
-                } catch {
-                    Write-Log "편집기를 열 수 없습니다: $_" 'ERROR'
-                }
-                Write-Log "편집을 마치셨다면 로그인 스크립트를 실행합니다..." 'INFO'
-                try { & "$PSScriptRoot\scripts\login-from-userdata.ps1" -Path $userdataPath } catch { Write-Log "로그인 스크립트 실행 중 오류: $_" 'ERROR' }
-            }
-            else {
-                Write-Log "userdata 기반 자동 로그인은 건너뜁니다." 'INFO'
-            }
-        }
-        else {
-            Write-Log "userdata.login이 설정되어 있으므로 자동 로그인 시도를 합니다..." 'INFO'
-            try { & "$PSScriptRoot\scripts\login-from-userdata.ps1" -Path $userdataPath } catch { Write-Log "로그인 스크립트 실행 중 오류: $_" 'ERROR' }
-        }
-    }
-    else {
-        Write-Log "userdata.login 파일이 존재하지 않습니다. 로그인 스크립트를 호출하면 템플릿을 생성합니다." 'INFO'
-        try { & "$PSScriptRoot\scripts\login-from-userdata.ps1" -Path $userdataPath } catch { Write-Log "로그인 스크립트 실행 중 오류: $_" 'ERROR' }
-    }
-}
-catch {
-    Write-Log "userdata 자동 로그인 처리 중 오류: $_" 'ERROR'
-}
+# userdata 기반 자동 로그인 로직은 보안 및 단순화 목적상 제거되었습니다.
+# 필요한 경우 `scripts\login-from-userdata.ps1`를 수동으로 실행하여
+# 브라우저 기반 `gh auth login --web` 흐름을 시작하세요.
