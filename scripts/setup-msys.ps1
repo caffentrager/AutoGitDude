@@ -18,15 +18,24 @@
 
 [CmdletBinding()]
 param(
-    [switch]$AutoConfirm
+    [switch]$AutoConfirm,
+    [string]$LogFile
 )
 
+# 전역 로그 파일 변수
+$Global:ScriptLogFile = $LogFile
+
 function Write-Log { param([string]$Message, [string]$Level = 'INFO')
+    $time = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    $line = "[$time] [$Level] $Message"
     switch ($Level.ToUpper()) {
-        'INFO' { Write-Host $Message -ForegroundColor Cyan }
-        'WARN' { Write-Host $Message -ForegroundColor Yellow }
-        'ERROR' { Write-Host $Message -ForegroundColor Red }
-        default { Write-Host $Message }
+        'INFO' { Write-Host $line -ForegroundColor Cyan }
+        'WARN' { Write-Host $line -ForegroundColor Yellow }
+        'ERROR' { Write-Host $line -ForegroundColor Red }
+        default { Write-Host $line }
+    }
+    if ($Global:ScriptLogFile) {
+        try { $line | Out-File -FilePath $Global:ScriptLogFile -Encoding utf8 -Append -ErrorAction SilentlyContinue } catch {}
     }
 }
 
@@ -106,15 +115,23 @@ Write-Log "pacman 실행파일 발견: $pacman" 'INFO'
 # 4) pacman으로 시스템 업데이트 및 msys/mingw 패키지 설치
 if (-not (Prompt-YesNo "pacman으로 MSYS2 업데이트 및 mingw 툴체인 설치를 진행하시겠습니까? (관리자 권한 필요할 수 있음)" $true)) { Write-Log "pacman 단계 건너뜁니다." 'INFO' ; exit 0 }
 
-try {
-    Write-Log "pacman 데이터베이스/패키지 업데이트 (may require admin)..." 'INFO'
-    & $pacman -Syu --noconfirm | Out-Null
-    Start-Sleep -Seconds 2
-    # Install msys runtime base packages and mingw toolchain
-    Write-Log "MSYS runtime 및 mingw-w64 툴체인 설치..." 'INFO'
-    & $pacman -S --noconfirm msys2-runtime base-devel mingw-w64-x86_64-toolchain | Out-Null
-}
-catch { Write-Log "pacman 실행 중 오류: $_" 'ERROR'; exit 1 }
+    try {
+        Write-Log "pacman 데이터베이스/패키지 업데이트 (may require admin)..." 'INFO'
+        $retry = 0; $ok = $false
+        while (-not $ok -and $retry -lt 3) {
+            try { & $pacman -Syu --noconfirm | Out-Null; $ok = $true } catch { $retry++; Start-Sleep -Seconds (5 * $retry) }
+        }
+        if (-not $ok) { Write-Log "pacman -Syu 실패 (3회)" 'ERROR'; exit 1 }
+        Start-Sleep -Seconds 2
+        # Install msys runtime base packages and mingw toolchain with retry
+        Write-Log "MSYS runtime 및 mingw-w64 툴체인 설치..." 'INFO'
+        $retry = 0; $ok = $false
+        while (-not $ok -and $retry -lt 3) {
+            try { & $pacman -S --noconfirm msys2-runtime base-devel mingw-w64-x86_64-toolchain | Out-Null; $ok = $true } catch { $retry++; Start-Sleep -Seconds (5 * $retry) }
+        }
+        if (-not $ok) { Write-Log "pacman -S (toolchain) 실패 (3회)" 'ERROR'; exit 1 }
+    }
+    catch { Write-Log "pacman 실행 중 오류: $_" 'ERROR'; exit 1 }
 
 # 5) mingw bin 경로를 PATH에 추가 (user)
 $mingwBin = 'C:\msys64\mingw64\bin'
