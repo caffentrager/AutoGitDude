@@ -120,6 +120,17 @@ if (-not $pacman) { Write-Log "pacman을 찾을 수 없습니다. MSYS2 설치가 제대로 되
 
 Write-Log "pacman 실행파일 발견: $pacman" 'INFO'
 
+# pacman-key 초기화가 필요할 수 있음: 키링 초기화 및 populate
+$pacmanKey = Join-Path (Split-Path $pacman -Parent) 'pacman-key.exe'
+if (Test-Path $pacmanKey) {
+    try {
+        Write-Log "pacman-key 초기화 시도..." 'INFO'
+        & $pacmanKey --init | Out-Null
+        & $pacmanKey --populate msys2 | Out-Null
+        Write-Log "pacman-key 초기화 완료" 'INFO'
+    } catch { Write-Log "pacman-key 초기화 실패: $_" 'WARN' }
+}
+
 # 4) pacman으로 시스템 업데이트 및 msys/mingw 패키지 설치
 if (-not (Prompt-YesNo "pacman으로 MSYS2 업데이트 및 mingw 툴체인 설치를 진행하시겠습니까? (관리자 권한 필요할 수 있음)" $true)) { Write-Log "pacman 단계 건너뜁니다." 'INFO' ; exit 0 }
 
