@@ -20,7 +20,9 @@
 param(
     [bool]$InstallChocolatey = $true,
     [bool]$InstallGit = $true,
-    [bool]$InstallGh = $true
+    [bool]$InstallGh = $true,
+    [bool]$InstallMSYS = $false,
+    [bool]$InstallMingw = $false
 )
 
 function Write-Log { param([string]$Message, [string]$Level = 'INFO')
@@ -185,6 +187,19 @@ if ($InstallGh) {
     Install-ChocoPackage -PackageName 'gh'
 }
 
+# 4) Optional: MSYS2 설치 (선택)
+if ($InstallMSYS) {
+    Write-Log "MSYS2 설치 플래그가 설정되어 있습니다. Chocolatey를 통해 MSYS2 설치를 시도합니다." 'INFO'
+    Install-ChocoPackage -PackageName 'msys2'
+}
+
+# 5) Optional: MinGW 설치 (선택)
+if ($InstallMingw) {
+    Write-Log "MinGW 설치 플래그가 설정되어 있습니다. Chocolatey를 통해 MinGW 설치를 시도합니다." 'INFO'
+    # 패키지 이름은 배포에 따라 다를 수 있습니다. 일반적으로 'mingw' 또는 'mingw-w64' 패키지를 사용합니다.
+    Install-ChocoPackage -PackageName 'mingw'
+}
+
 # (참고) 불필요한 오래된 설치 옵션 관련 로직은 제거되었습니다.
 
 # git, gh 경로가 자동으로 PATH에 추가되지 않았다면 탐색 후 추가
@@ -224,10 +239,21 @@ function Get-CommonInstallPaths {
                 if ($env:ChocolateyInstall) { $candidates += Join-Path $env:ChocolateyInstall 'bin' }
                 $candidates += 'C:\ProgramData\chocolatey\bin'
             }
-            'git' {
-                $candidates += 'C:\Program Files\Git\cmd'
-                $candidates += 'C:\Program Files (x86)\Git\cmd'
-            }
+                    'git' {
+                        $candidates += 'C:\Program Files\Git\cmd'
+                        $candidates += 'C:\Program Files (x86)\Git\cmd'
+                    }
+                    'msys' {
+                        $candidates += 'C:\msys64\usr\bin'
+                        $candidates += 'C:\tools\msys64\usr\bin'
+                        $candidates += Join-Path $env:LOCALAPPDATA 'Programs\msys2\usr\bin'
+                    }
+                    'mingw' {
+                        $candidates += 'C:\mingw\bin'
+                        $candidates += 'C:\Program Files\mingw-w64\mingw64\bin'
+                        $candidates += 'C:\Program Files (x86)\mingw-w64\mingw32\bin'
+                        $candidates += Join-Path $env:ProgramFiles 'mingw-w64\mingw64\bin'
+                    }
             'gh' {
                 $candidates += 'C:\Program Files\GitHub CLI'
                 $candidates += 'C:\Program Files\GitHub CLI\bin'
@@ -267,7 +293,10 @@ function Get-CommonInstallPaths {
 }
 
 # 검사 및 요약용 호출
-$DetectedPrograms = Get-CommonInstallPaths -Programs @('choco','git','gh')
+$programsToDetect = @('choco','git','gh')
+if ($InstallMSYS) { $programsToDetect += 'msys' }
+if ($InstallMingw) { $programsToDetect += 'mingw' }
+$DetectedPrograms = Get-CommonInstallPaths -Programs $programsToDetect
 
 Write-Log "검출된 일반 설치 경로(감지):" 'INFO'
 foreach ($k in $DetectedPrograms.Keys) {
