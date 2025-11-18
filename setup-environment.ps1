@@ -14,9 +14,7 @@
   주의: 이 스크립트는 머신 환경변수(Path) 수정(관리자 권한 필요)을 시도합니다.
 #>
 
-# NOTE: README.md and ai.txt were removed from the repository. See `run-setup.bat` for a convenient way
-# to run this script with ExecutionPolicy bypass. This script prints status and attempts to add
-# common tool paths to the user's PATH. Keep it in the repo root and run from that location.
+
 
 [CmdletBinding()]
 param(
@@ -24,7 +22,6 @@ param(
     [bool]$InstallGit = $true,
     [bool]$InstallGh = $true
 )
-# (참고) 과거 옵션 정리: 일부 오래된 옵션은 더이상 사용되지 않습니다.
 
 function Write-Log { param([string]$Message, [string]$Level = 'INFO')
     switch ($Level.ToUpper()) {
@@ -120,13 +117,35 @@ Write-Log '주의: 이 스크립트는 기본적으로 사용자(User) 범위의 PATH를 수정합니다.
 
 Write-Log "== 시작: 환경 구성 스크립트 ==" 'INFO'
 
-# 1) Chocolatey 설치 (없을 때)
+# 1) Chocolatey 설치 (강제): 이미 설치되어 있어도 업그레이드/재설치를 시도합니다.
 if ($InstallChocolatey) {
-    if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-        Write-Log "Chocolatey가 설치되어 있지 않습니다. 설치를 시도합니다 (관리자 권한 필요할 수 있음)..." 'INFO'
-        Set-ExecutionPolicy Bypass -Scope Process -Force
+    Write-Log "Chocolatey 설치(강제)를 시도합니다 ? 이미 설치되어 있어도 업그레이드/재설치 시도합니다. (관리자 권한 필요할 수 있음)" 'INFO'
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+
+    $chocoCmd = Get-Command choco -ErrorAction SilentlyContinue
+    if ($chocoCmd) {
+        Write-Log "choco 명령이 발견되었습니다 ? 'choco upgrade chocolatey -y'를 시도합니다..." 'INFO'
         try {
-            # PowerShell 5.1 환경에서 안정적으로 동작하도록 Invoke-WebRequest 사용
+            choco upgrade chocolatey -y --no-progress
+            Write-Log "chocolatey 업그레이드/재설치 시도 완료." 'INFO'
+        }
+        catch {
+            Write-Log "choco로 업그레이드에 실패했습니다: $_" 'WARN'
+            Write-Log "설치 스크립트로 재설치 시도합니다..." 'INFO'
+            try {
+                $installScript = (Invoke-WebRequest -Uri 'https://community.chocolatey.org/install.ps1' -UseBasicParsing -ErrorAction Stop).Content
+                Invoke-Expression $installScript
+                Write-Log "Chocolatey 설치 스크립트 실행 완료." 'INFO'
+            }
+            catch {
+                Write-Log "Chocolatey 설치 실패(관리자 권한 필요할 수 있음): $_" 'ERROR'
+                Write-Log "관리자 권한으로 설치하거나 수동 설치 후 스크립트를 다시 실행하세요." 'WARN'
+            }
+        }
+    }
+    else {
+        Write-Log "choco 명령을 찾을 수 없습니다 ? 설치 스크립트를 실행합니다..." 'INFO'
+        try {
             $installScript = (Invoke-WebRequest -Uri 'https://community.chocolatey.org/install.ps1' -UseBasicParsing -ErrorAction Stop).Content
             Invoke-Expression $installScript
             Write-Log "Chocolatey 설치 시도 완료." 'INFO'
@@ -135,12 +154,10 @@ if ($InstallChocolatey) {
             Write-Log "Chocolatey 설치 실패(관리자 권한 필요할 수 있음): $_" 'ERROR'
             Write-Log "관리자 권한으로 설치하거나 수동 설치 후 스크립트를 다시 실행하세요." 'WARN'
         }
-        # refreshenv가 사용 가능하면 실행
-        if (Get-Command refreshenv -ErrorAction SilentlyContinue) { try { refreshenv } catch { } }
     }
-    else {
-        Write-Log "Chocolatey가 이미 설치되어 있습니다." 'WARN'
-    }
+
+    # refreshenv가 사용 가능하면 실행
+    if (Get-Command refreshenv -ErrorAction SilentlyContinue) { try { refreshenv } catch { } }
 }
 
 # Helper: run choco install if available
