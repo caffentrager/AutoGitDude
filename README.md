@@ -31,14 +31,7 @@ PowerShell에서 직접:
   - Chocolatey (`choco`) ? 없을 때만 설치
   - Git (`git`) ? choco를 통해 설치(없을 때만)
   - GitHub CLI (`gh`) ? choco를 통해 설치(없을 때만)
-  - MSYS2 (`msys2`) ? 옵션으로 설치할 수 있음(`-InstallMSYS`)
-  - MinGW (`mingw`) ? 옵션으로 설치할 수 있음(`-InstallMingw`)
-
-예: MSYS2와 MinGW를 함께 설치하려면 관리자 PowerShell에서 다음과 같이 실행하세요:
-
-```powershell
-.\setup-environment.ps1 -InstallMSYS $true -InstallMingw $true
-```
+  (MSYS2/MinGW 관련 옵션은 제거되었습니다 ? 기본적으로 Git/gh 설치만 처리합니다.)
 
 인증
 - 자동 토큰 저장을 권장하지 않으며, `gh auth login --web`(브라우저)를 사용한 수동 인증을 권장합니다.
